@@ -6,7 +6,7 @@ The main difference is that the Unet in models.lua accepts 32x1 images instead o
 
 The included generate.js is a nodejs script that generates A/B image pairs for training from a json palette dataset:
 
----
+```
 dataset.json
 
 [
@@ -30,6 +30,6 @@ DATA_ROOT=./aggregate/AB1 name=palette which_direction=BtoA gpu=0 cudnn=0 th tra
 
 feed forward:
 DATA_ROOT=./aggregate/AB1 name=palette which_direction=BtoA gpu=0 cudnn=0 phase=test th test.lua
----
+```
 
 note: reduce ngf and ndf parameters to reduce model size (as well as output quality)
