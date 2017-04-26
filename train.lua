@@ -14,10 +14,11 @@ require 'models'
 opt = {
    DATA_ROOT = '',         -- path to images (should have subfolders 'train', 'val', etc)
    batchSize = 1,          -- # images in batch
-   loadSize = 286,         -- scale images to this size
-   fineSize = 256,         --  then crop to this size
-   ngf = 64,               -- #  of gen filters in first conv layer
-   ndf = 64,               -- #  of discrim filters in first conv layer
+   loadSize = 32,         -- scale images to this size
+   fineSize_w = 32, -- 32,         --  then crop to this size
+   fineSize_h = 1, -- 1,         --  then crop to this size
+   ngf = 128,               -- #  of gen filters in first conv layer
+   ndf = 128,               -- #  of discrim filters in first conv layer
    input_nc = 3,           -- #  of input image channels
    output_nc = 3,          -- #  of output image channels
    niter = 200,            -- #  of iter at starting learning rate
@@ -27,7 +28,6 @@ opt = {
    flip = 1,               -- if flip the images for data argumentation
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
-   display_plot = 'errL1',    -- which loss values to plot over time. Accepted values include a comma seperated list of: errL1, errG, and errD
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
    name = '',              -- name of the experiment, should generally be passed on the command line
    which_direction = 'AtoB',    -- AtoB or BtoA
@@ -35,7 +35,7 @@ opt = {
    preprocess = 'regular',      -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
    nThreads = 2,                -- # threads for loading data
    save_epoch_freq = 50,        -- save a model every save_epoch_freq epochs (does not overwrite previously saved models)
-   save_latest_freq = 5000,     -- save the latest model every latest_freq sgd iterations (overwrites the previous latest model)
+   save_latest_freq = 1500,     -- save the latest model every latest_freq sgd iterations (overwrites the previous latest model)
    print_freq = 50,             -- print the debug information every print_freq iterations
    display_freq = 100,          -- display the current results every display_freq iterations
    save_display_freq = 5000,    -- save the current display of results every save_display_freq_iterations
@@ -99,26 +99,26 @@ local function weights_init(m)
    end
 end
 
-
+local nz = opt.nz
 local ndf = opt.ndf
 local ngf = opt.ngf
 local real_label = 1
 local fake_label = 0
 
-function defineG(input_nc, output_nc, ngf)
-    local netG = nil
-    if     opt.which_model_netG == "encoder_decoder" then netG = defineG_encoder_decoder(input_nc, output_nc, ngf)
+function defineG(input_nc, output_nc, ngf, nz)
+   
+    if     opt.which_model_netG == "encoder_decoder" then netG = defineG_encoder_decoder(input_nc, output_nc, ngf, nz, 3)
     elseif opt.which_model_netG == "unet" then netG = defineG_unet(input_nc, output_nc, ngf)
-    elseif opt.which_model_netG == "unet_128" then netG = defineG_unet_128(input_nc, output_nc, ngf)
     else error("unsupported netG model")
     end
    
-    netG:apply(weights_init)
-  
-    return netG
+   netG:apply(weights_init)
+   
+   return netG
 end
 
 function defineD(input_nc, output_nc, ndf)
+    
     local netD = nil
     if opt.condition_GAN==1 then
         input_nc_tmp = input_nc
@@ -145,7 +145,7 @@ if opt.continue_train == 1 then
    netD = util.load(paths.concat(opt.checkpoints_dir, opt.name, 'latest_net_D.t7'), opt)
 else
   print('define model netG...')
-  netG = defineG(input_nc, output_nc, ngf)
+  netG = defineG(input_nc, output_nc, ngf, nz)
   print('define model netD...')
   netD = defineD(input_nc, output_nc, ndf)
 end
@@ -166,11 +166,11 @@ optimStateD = {
    beta1 = opt.beta1,
 }
 ----------------------------------------------------------------------------
-local real_A = torch.Tensor(opt.batchSize, input_nc, opt.fineSize, opt.fineSize)
-local real_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize)
-local fake_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize)
-local real_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
-local fake_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
+local real_A = torch.Tensor(opt.batchSize, input_nc, opt.fineSize_h, opt.fineSize_w)
+local real_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize_h, opt.fineSize_w)
+local fake_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize_h, opt.fineSize_w)
+local real_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize_h, opt.fineSize_w)
+local fake_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize_h, opt.fineSize_w)
 local errD, errG, errL1 = 0, 0, 0
 local epoch_tm = torch.Timer()
 local tm = torch.Timer()
@@ -193,11 +193,8 @@ else
 	print('running model on CPU')
 end
 
-
 local parametersD, gradParametersD = netD:getParameters()
 local parametersG, gradParametersG = netG:getParameters()
-
-
 
 if opt.display then disp = require 'display' end
 
@@ -219,12 +216,15 @@ function createRealFake()
     
     -- create fake
     fake_B = netG:forward(real_A)
-    
+    --print (fake_B:size())   
+ 
     if opt.condition_GAN==1 then
         fake_AB = torch.cat(real_A,fake_B,2)
     else
         fake_AB = fake_B -- unconditional GAN, only penalizes structure in B
     end
+    local predict_real = netD:forward(real_AB)
+    local predict_fake = netD:forward(fake_AB)
 end
 
 -- create closure to evaluate f(X) and df/dX of discriminator
@@ -313,25 +313,6 @@ file = torch.DiskFile(paths.concat(opt.checkpoints_dir, opt.name, 'opt.txt'), 'w
 file:writeObject(opt)
 file:close()
 
--- parse diplay_plot string into table
-opt.display_plot = string.split(string.gsub(opt.display_plot, "%s+", ""), ",")
-for k, v in ipairs(opt.display_plot) do
-    if not util.containsValue({"errG", "errD", "errL1"}, v) then 
-        error(string.format('bad display_plot value "%s"', v)) 
-    end
-end
-
--- display plot config
-local plot_config = {
-  title = "Loss over time",
-  labels = {"epoch", unpack(opt.display_plot)},
-  ylabel = "loss",
-}
-
--- display plot vars
-local plot_data = {}
-local plot_win
-
 local counter = 0
 for epoch = 1, opt.niter do
     epoch_tm:reset()
@@ -346,7 +327,7 @@ for epoch = 1, opt.niter do
         
         -- (2) Update G network: maximize log(D(x,G(x))) + L1(y,G(x))
         optim.adam(fGx, parametersG, optimStateG)
-
+        
         -- display
         counter = counter + 1
         if counter % opt.display_freq == 0 and opt.display then
@@ -373,9 +354,8 @@ for epoch = 1, opt.niter do
             opt.serial_batch_iter=1
             
             local image_out = nil
-            local N_save_display = 10 
-            local N_save_iter = torch.max(torch.Tensor({1, torch.floor(N_save_display/opt.batchSize)}))
-            for i3=1, N_save_iter do
+            local N_save_display = 10
+            for i3=1, torch.floor(N_save_display/opt.batchSize) do
             
                 createRealFake()
                 print('save to the disk')
@@ -396,30 +376,14 @@ for epoch = 1, opt.niter do
             opt.serial_batches=serial_batches
         end
         
-        -- logging and display plot
+        -- logging
         if counter % opt.print_freq == 0 then
-            local loss = {errG=errG and errG or -1, errD=errD and errD or -1, errL1=errL1 and errL1 or -1}
-            local curItInBatch = ((i-1) / opt.batchSize)
-            local totalItInBatch = math.floor(math.min(data:size(), opt.ntrain) / opt.batchSize)
             print(('Epoch: [%d][%8d / %8d]\t Time: %.3f  DataTime: %.3f  '
                     .. '  Err_G: %.4f  Err_D: %.4f  ErrL1: %.4f'):format(
-                     epoch, curItInBatch, totalItInBatch,
+                     epoch, ((i-1) / opt.batchSize),
+                     math.floor(math.min(data:size(), opt.ntrain) / opt.batchSize),
                      tm:time().real / opt.batchSize, data_tm:time().real / opt.batchSize,
-                     errG, errD, errL1))
-           
-            local plot_vals = { epoch + curItInBatch / totalItInBatch }
-            for k, v in ipairs(opt.display_plot) do
-              if loss[v] ~= nil then
-               plot_vals[#plot_vals + 1] = loss[v] 
-             end
-            end
-
-            -- update display plot
-            if opt.display then
-              table.insert(plot_data, plot_vals)
-              plot_config.win = plot_win
-              plot_win = disp.plot(plot_data, plot_config)
-            end
+                     errG and errG or -1, errD and errD or -1, errL1 and errL1 or -1))
         end
         
         -- save latest model

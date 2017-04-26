@@ -12,14 +12,16 @@ torch.setdefaulttensortype('torch.FloatTensor')
 opt = {
     DATA_ROOT = '',           -- path to images (should have subfolders 'train', 'val', etc)
     batchSize = 1,            -- # images in batch
-    loadSize = 256,           -- scale images to this size
-    fineSize = 256,           --  then crop to this size
+    loadSize = 32,           -- scale images to this size
+    fineSize_w = 32,           --  then crop to this size
+    fineSize_h = 1,           --  then crop to this size
+    
     flip=0,                   -- horizontal mirroring data augmentation
     display = 1,              -- display samples while training. 0 = false
     display_id = 200,         -- display window id.
     gpu = 1,                  -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
     how_many = 'all',         -- how many test images to run (set to all to run on every image found in the data/phase folder)
-    which_direction = 'AtoB', -- AtoB or BtoA
+    which_direction = 'BtoA', -- AtoB or BtoA
     phase = 'val',            -- train, val, test ,etc
     preprocess = 'regular',   -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
     aspect_ratio = 1.0,       -- aspect ratio of result images
@@ -69,8 +71,8 @@ else
 end
 ----------------------------------------------------------------------------
 
-local input = torch.FloatTensor(opt.batchSize,3,opt.fineSize,opt.fineSize)
-local target = torch.FloatTensor(opt.batchSize,3,opt.fineSize,opt.fineSize)
+local input = torch.FloatTensor(opt.batchSize,3,opt.fineSize_h, opt.fineSize_w)
+local target = torch.FloatTensor(opt.batchSize,3,opt.fineSize_h, opt.fineSize_w)
 
 print('checkpoints_dir', opt.checkpoints_dir)
 local netG = util.load(paths.concat(opt.checkpoints_dir, opt.netG_name .. '.t7'), opt)
@@ -94,7 +96,6 @@ opt.how_many=math.min(opt.how_many, data:size())
 local filepaths = {} -- paths to images tested on
 for n=1,math.floor(opt.how_many/opt.batchSize) do
     print('processing batch ' .. n)
-    
     local data_curr, filepaths_curr = data:getBatch()
     filepaths_curr = util.basename_batch(filepaths_curr)
     print('filepaths_curr: ', filepaths_curr)
@@ -102,6 +103,8 @@ for n=1,math.floor(opt.how_many/opt.batchSize) do
     input = data_curr[{ {}, idx_A, {}, {} }]
     target = data_curr[{ {}, idx_B, {}, {} }]
     
+    --print(output:size())
+     
     if opt.gpu > 0 then
         input = input:cuda()
     end
@@ -125,13 +128,14 @@ for n=1,math.floor(opt.how_many/opt.batchSize) do
     paths.mkdir(paths.concat(image_dir,'input'))
     paths.mkdir(paths.concat(image_dir,'output'))
     paths.mkdir(paths.concat(image_dir,'target'))
-    -- print(input:size())
-    -- print(output:size())
-    -- print(target:size())
+    print(input:size())
+    print(output:size())
+    print(target:size())
+    --print (target) 
     for i=1, opt.batchSize do
-        image.save(paths.concat(image_dir,'input',filepaths_curr[i]), image.scale(input[i],input[i]:size(2),input[i]:size(3)/opt.aspect_ratio))
-        image.save(paths.concat(image_dir,'output',filepaths_curr[i]), image.scale(output[i],output[i]:size(2),output[i]:size(3)/opt.aspect_ratio))
-        image.save(paths.concat(image_dir,'target',filepaths_curr[i]), image.scale(target[i],target[i]:size(2),target[i]:size(3)/opt.aspect_ratio))
+        image.save(paths.concat(image_dir,'input',filepaths_curr[i]), image.scale(input[i],input[i]:size(3),input[i]:size(2)/opt.aspect_ratio))
+        image.save(paths.concat(image_dir,'output',filepaths_curr[i]), image.scale(output[i],output[i]:size(3),output[i]:size(2)/opt.aspect_ratio))
+        image.save(paths.concat(image_dir,'target',filepaths_curr[i]), image.scale(target[i],target[i]:size(3),target[i]:size(2)/opt.aspect_ratio))
     end
     print('Saved images to: ', image_dir)
     
@@ -152,7 +156,7 @@ end
 -- make webpage
 io.output(paths.concat(opt.results_dir,opt.netG_name .. '_' .. opt.phase, 'index.html'))
 
-io.write('<table style="text-align:center;">')
+io.write('<style>img{width:256px;height: 128px; image-rendering: pixelated;}</style><table style="text-align:center;">')
 
 io.write('<tr><td>Image #</td><td>Input</td><td>Output</td><td>Ground Truth</td></tr>')
 for i=1, #filepaths do
